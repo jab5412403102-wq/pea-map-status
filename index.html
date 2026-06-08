@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>แผนที่จัดกลุ่มพิกัดหม้อแปลงไฟฟ้า พร้อมระบบนำทาง - PEA Amnat</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        html, body, #map {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        .legend {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 13px;
+            line-height: 22px;
+            z-index: 1000;
+            border: 1px solid #ccc;
+        }
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+            font-size: 14px;
+        }
+        .color-dot {
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            border: 1px solid #fff;
+            box-shadow: 0 0 2px #000;
+        }
+        /* Stats panel */
+        #stats-panel {
+            position: fixed;
+            bottom: 16px;
+            right: 10px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 13px;
+            z-index: 1000;
+            border: 1px solid #ddd;
+            min-width: 52px;
+            max-width: 220px;
+            overflow: hidden;
+            transition: max-width 0.3s ease, min-width 0.3s ease;
+        }
+        /* Toggle button always visible */
+        #stats-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            cursor: pointer;
+            background: #fff;
+            border: none;
+            width: 100%;
+            font-size: 13px;
+            font-weight: bold;
+            color: #333;
+            white-space: nowrap;
+        }
+        #stats-toggle .arrow {
+            margin-left: auto;
+            font-size: 10px;
+            transition: transform 0.3s;
+        }
+        #stats-body {
+            padding: 0 12px 10px;
+            display: none;
+        }
+        #stats-panel.expanded #stats-body {
+            display: block;
+        }
+        #stats-panel.expanded #stats-toggle .arrow {
+            transform: rotate(180deg);
+        }
+        /* Desktop: always expanded */
+        @media (min-width: 600px) {
+            #stats-panel {
+                top: 10px;
+                bottom: auto;
+                right: 10px;
+                min-width: 190px;
+            }
+            #stats-body { display: block !important; }
+            #stats-toggle .arrow { display: none; }
+        }
+        #stats-panel .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+        }
+        #stats-panel .done-count {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        #stats-panel .total-count {
+            color: #555;
+        }
+        #stats-panel .progress-bar {
+            margin-top: 8px;
+            height: 8px;
+            background: #eee;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #stats-panel .progress-fill {
+            height: 100%;
+            background: #4CAF50;
+            border-radius: 4px;
+            transition: width 0.4s ease;
+        }
+        /* Status dropdown styles */
+        .status-select {
+            width: 100%;
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 2px solid #e0e0e0;
+            font-size: 13px;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            font-weight: bold;
+            cursor: pointer;
+            outline: none;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            padding-right: 28px;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        .status-select.status-pending   { background-color:#fff8e1; border-color:#FFC107; color:#795548; }
+        .status-select.status-inprogress{ background-color:#e3f2fd; border-color:#1565C0; color:#1565C0; }
+        .status-select.status-done      { background-color:#e8f5e9; border-color:#4CAF50; color:#2E7D32; }
+        .status-select.status-skip      { background-color:#fce4ec; border-color:#E91E63; color:#880E4F; }
+        /* Stats badge rows */
+        .stat-badge {
+            display: inline-block;
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <!-- Stats Panel -->
+    <div id="stats-panel">
+        <button id="stats-toggle" onclick="toggleStats()">
+            📊 <span id="toggle-label">สถานะ</span>
+            <span class="arrow">▼</span>
+        </button>
+        <div id="stats-body">
+            <div style="border-top:1px solid #eee; margin-bottom:6px;"></div>
+            <div class="stat-row" style="margin:3px 0;">
+                <span>🟡 รอดำเนินการ:</span>
+                <span style="color:#795548; font-weight:bold;" id="cnt-pending">0</span>
+            </div>
+            <div class="stat-row" style="margin:3px 0;">
+                <span>🔵 กำลังดำเนินการ:</span>
+                <span style="color:#1565C0; font-weight:bold;" id="cnt-inprogress">0</span>
+            </div>
+            <div class="stat-row" style="margin:3px 0;">
+                <span>🟢 ดำเนินการแล้ว:</span>
+                <span style="color:#2E7D32; font-weight:bold;" id="cnt-done">0</span>
+            </div>
+            <div class="stat-row" style="margin:3px 0;">
+                <span>🔴 ไม่ดำเนินการ:</span>
+                <span style="color:#880E4F; font-weight:bold;" id="cnt-skip">0</span>
+            </div>
+            <div class="stat-row" style="margin:5px 0 2px; border-top:1px solid #eee; padding-top:5px;">
+                <span>ทั้งหมด:</span>
+                <span style="color:#555; font-weight:bold;" id="total-count">0</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+            </div>
+            <div style="text-align:right; margin-top:4px; font-size:11px; color:#888;" id="progress-pct">0%</div>
+            <button onclick="clearAllDone()"
+                style="margin-top:8px; width:100%; padding:5px; background:#f5f5f5; border:1px solid #ddd; border-radius:4px; cursor:pointer; font-size:11px; color:#666;">
+                🔄 รีเซ็ตทั้งหมด
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Toggle stats panel (mobile)
+        function toggleStats() {
+            var panel = document.getElementById('stats-panel');
+            panel.classList.toggle('expanded');
+        }
+
+        // Google Sheets Sync
+        const API_URL = "https://script.google.com/macros/s/AKfycbyxfekMn3rp9jXwg_vIujqJ2qCeoVWPrAeMpwlIo1Bb9NlCDLroK1_47u2HtJXrTGVVsA/exec";
+        var statusCache = {};
+
+        async function loadStatus(){
+            try{
+                const res = await fetch(API_URL);
+                statusCache = await res.json();
+
+                Object.keys(markerMap).forEach(function(peaNo){
+                    const s = STATUS[getStatus(peaNo)] || STATUS[''];
+                    markerMap[peaNo].setStyle({
+                        fillOpacity: s.fillOpacity,
+                        opacity: s.opacity
+                    });
+                });
+
+                loadStatus();
+
+            }catch(err){
+                console.log("โหลดสถานะไม่สำเร็จ", err);
+            }
+        }
+
+        // Status config
+        var STATUS = {
+            '':           { label: '— เลือกสถานะ —',     cls: '',                fillOpacity: 0.85, opacity: 1,   border: '#ffffff' },
+            'pending':    { label: '🟡 รอดำเนินการ',      cls: 'status-pending',   fillOpacity: 0.85, opacity: 1,   border: '#ffffff' },
+            'inprogress': { label: '🔵 กำลังดำเนินการ',  cls: 'status-inprogress',fillOpacity: 0.9,  opacity: 1,   border: '#ffffff' },
+            'done':       { label: '🟢 ดำเนินการแล้ว',   cls: 'status-done',      fillOpacity: 0.3,  opacity: 0.4, border: '#ffffff' },
+            'skip':       { label: '🔴 ไม่ดำเนินการ',    cls: 'status-skip',      fillOpacity: 0.5,  opacity: 0.6, border: '#ffffff' }
+        };
+
+        
+function getStatus(peaNo){
+    return statusCache[peaNo] || '';
+}
+
+
+
+var statusCache = {};
+
+async function loadStatus(){
+
+    try{
+
+        const res =
+        await fetch(API_URL);
+
+        statusCache =
+        await res.json();
+
+        Object.keys(markerMap)
+        .forEach(function(peaNo){
+
+            const s =
+            STATUS[
+                getStatus(peaNo)
+            ] || STATUS[''];
+
+            markerMap[peaNo].setStyle({
+
+                fillOpacity:
+                s.fillOpacity,
+
+                opacity:
+                s.opacity
+
+            });
+
+        });
+
+        updateStats();
+
+    }
+
+    catch(err){
+
+        console.log(
+            "โหลดสถานะไม่สำเร็จ",
+            err
+        );
+
+    }
+
+}
+
+async function setStatus(
+    peaNo,
+    val
+){
+
+    statusCache[peaNo] = val;
+
+    try{
+
+        const formData =
+        new URLSearchParams();
+
+        formData.append(
+            "peaNo",
+            peaNo
+        );
+
+        formData.append(
+            "status",
+            val
+        );
+
+        await fetch(
+            API_URL,
+            {
+
+                method:"POST",
+
+                mode:"no-cors",
+
+                body:formData
+
+            }
+        );
+
+    }
+
+    catch(err){
+
+        console.log(
+            "บันทึกไม่สำเร็จ",
+            err
+        );
+
+    }
+
+    var sel =
+    document.getElementById(
+        'sel-' + peaNo
+    );
+
+    if(sel){
+
+        sel.className =
+
+        'status-select '
+
+        +
+
+        (
+
+        STATUS[val]
+
+        ?
+
+        STATUS[val].cls
+
+        :
+
+        ''
+
+        );
+
+    }
+
+    if(markerMap[peaNo]){
+
+        var s =
+
+        STATUS[val]
+
+        ||
+
+        STATUS[''];
+
+        markerMap[peaNo]
+
+        .setStyle({
+
+            fillOpacity:
+            s.fillOpacity,
+
+            opacity:
+            s.opacity
+
+        });
+
+    }
+
+    updateStats();
+
+}
+
+function clearAllDone() {
+
+    if (!confirm('ต้องการรีเซ็ตสถานะทั้งหมดหรือไม่?'))
+    return;
+
+    statusCache = {};
+
+    Object.keys(markerMap)
+    .forEach(function(peaNo) {
+
+        markerMap[peaNo]
+        .setStyle({
+
+            fillOpacity:0.85,
+
+            opacity:1
+
+        });
+
+    });
+
+    updateStats();
+
+}
+
+
+function updateStats() {
+            var total = Object.keys(markerMap).length;
+            var counts = { pending: 0, inprogress: 0, done: 0, skip: 0 };
+            Object.keys(markerMap).forEach(function(p) {
+                var s = getStatus(p);
+                if (counts[s] !== undefined) counts[s]++;
+            });
+            document.getElementById('cnt-pending').textContent    = counts.pending;
+            document.getElementById('cnt-inprogress').textContent = counts.inprogress;
+            document.getElementById('cnt-done').textContent       = counts.done;
+            document.getElementById('cnt-skip').textContent       = counts.skip;
+            document.getElementById('total-count').textContent    = total;
+            var pct = total > 0 ? Math.round((counts.done / total) * 100) : 0;
+            document.getElementById('progress-fill').style.width  = pct + '%';
+            document.getElementById('progress-pct').textContent   = pct + '%';
+        }
+
+        // markerMap: peaNo -> L.circleMarker
+        var markerMap = {};
+
+        // ===== Popup builder =====
+        function makePopup(peaNo, groupColor, groupName, kva, location, users, target, lat, lng) {
+            var curStatus = getStatus(peaNo);
+            var curCls = STATUS[curStatus] ? STATUS[curStatus].cls : '';
+            var opts = Object.keys(STATUS).map(function(k) {
+                return '<option value="' + k + '"' + (k === curStatus ? ' selected' : '') + '>' + STATUS[k].label + '</option>';
+            }).join('');
+            return `
+        <div style="font-family: 'Sukhumvit Set', 'Segoe UI', Tahoma, sans-serif; font-size: 13px; line-height: 1.6; min-width: 230px;">
+            <b style="color:${groupColor}; font-size:14px;">${groupName}</b><br>
+            <b>หมายเลข PEA:</b> ${peaNo}<br>
+            <b>ขนาด KVA:</b> ${kva}<br>
+            <b>สถานที่:</b> ${location}<br>
+            <b>จำนวนผู้ใช้ไฟ:</b> ${users} ราย<br>
+            <b>เป้าหมาย :</b> ${target} ราย<br>
+            <div style="margin-top:8px;">
+                <label style="font-size:11px; color:#888; font-weight:bold; display:block; margin-bottom:3px;">สถานะดำเนินการ</label>
+                <select id="sel-${peaNo}" class="status-select ${curCls}"
+                    onchange="setStatus('${peaNo}', this.value)">
+                    ${opts}
+                </select>
+            </div>
+            <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #ccc; text-align: center;">
+                <a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank"
+                    style="background-color: #4285F4; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 11px; display: inline-block; margin-right: 5px;">
+                     Google Maps
+                </a>
+                <a href="javascript:void(0);" onclick="this.closest('.leaflet-popup').querySelector('.leaflet-popup-close-button').click();"
+                    style="background-color: #616161; color: white; padding: 5px 10px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 11px; display: inline-block;">
+                     ปิดหน้าต่าง
+                </a>
+            </div>
+        </div>`;
+        }
+
+        function addMarker(lat, lng, color, peaNo, groupName, kva, location, users, target) {
+            var s = STATUS[getStatus(peaNo)] || STATUS[''];
+            var m = L.circleMarker([lat, lng], {
+                radius: 9,
+                fillColor: color,
+                color: '#ffffff',
+                weight: 1.5,
+                opacity: s.opacity,
+                fillOpacity: s.fillOpacity
+            }).addTo(map)
+            .bindPopup(makePopup(peaNo, color, groupName, kva, location, users, target, lat, lng))
+            .bindTooltip('PEA: ' + peaNo, {permanent: false, direction: 'top'});
+            markerMap[peaNo] = m;
+        }
+
+        // Initialize Map
+        var map = L.map('map').setView([15.872599170169492, 104.61374252542375], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        // ===== Add all markers =====
+        addMarker(15.92713243, 104.603653, '#C62828', '63-022831', 'กลุ่มที่ 5 (ตะวันตกเฉียงเหนือ-นาผือ)', 160, 'G68_บ.ทับเมย ต.โนนหนามแท่ง อ.เมือง จ.อำนาจเจริญ', 275, 55);
+        addMarker(15.81004283, 104.462783, '#EF6C00', '67-029182', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 250, 'G67_บ้านน้ำปลีก ต.น้ำปลีก อ.เมือง จ.อำนาจเจริญ', 254, 50);
+        addMarker(15.88126324, 104.620004, '#6A1B9A', '45-034842', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 250, 'G61_บ.แสนสวาสดิ์ ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 223, 44);
+        addMarker(15.86673458, 104.617439, '#6A1B9A', '63-023285', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G68_บ.เทพมงคล ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 160, 32);
+        addMarker(15.86348079, 104.531167, '#EF6C00', '61-014706', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G67_บ.นาห้วยยาง ต.โนนโพธิ์ อ.เมือง จ.อำนาจเจริญ', 157, 31);
+        addMarker(15.86468723, 104.625953, '#6A1B9A', '66-016967', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 250, 'ตลาดวิชิตสิน ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 154, 30);
+        addMarker(15.88552415, 104.62519, '#6A1B9A', '38-008821', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'DCC_หน้าขนส่ง(หน้าสวนน้ำ) ต.บุ่ง อ.เมือง', 109, 21);
+        addMarker(15.86330334, 104.625915, '#6A1B9A', '22-003326', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 250, 'G67_หน้าสหกรณ์อำนาจเจริญ ต.บุ่ง อ.เมือง จ.อำนาจฯ', 184, 184);
+        addMarker(15.85942665, 104.629254, '#6A1B9A', '23-000020', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 250, 'DCC_หน้าที่ทำการอำเภอเมือง ต.บุ่ง อ.เมือง', 150, 30);
+        addMarker(15.86790346, 104.621526, '#6A1B9A', '37-010928', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G68_ข้างวัดเทพมงคล ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 130, 26);
+        addMarker(15.8668161, 104.634318, '#6A1B9A', '38-020770', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'DCC_อาคารพาณิชย์ชวลิตอุบล', 71, 71);
+        addMarker(15.96757941, 104.578546, '#C62828', '40-001285', 'กลุ่มที่ 5 (ตะวันตกเฉียงเหนือ-นาผือ)', 160, 'G67_บ.กุดปลาคุก ต.กุดปลาคุก อ.เมือง จ.อำนาจเจริญ', 381, 76);
+        addMarker(15.86535828, 104.572051, '#6A1B9A', '67-008448', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G68_บ.โท่ศิลา ต.โนนโพธิ์ อ.เมือง จ.อำนาจเจริญ', 149, 29);
+        addMarker(15.7996034, 104.680241, '#2E7D32', '47-008964', 'กลุ่มที่ 1 (รอบนอกตะวันออก-คึมใหญ่)', 160, 'G68_บ.ไร่ ต.ไก่คำ อ.เมือง จ.อำนาจเจริญ', 263, 52);
+        addMarker(15.86248235, 104.601776, '#6A1B9A', '67-029333', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G67_บ.ทุ่งสว่าง ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 127, 25);
+        addMarker(15.87301046, 104.525015, '#EF6C00', '63-035440', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G67_บ.นาเยีย ต.นายม อ.เมือง จ.อำนาจเจริญ', 262, 52);
+        addMarker(15.93358206, 104.700234, '#1565C0', '38-020940', 'กลุ่มที่ 4 (ทิศใต้-ไก่คำ)', 160, 'G67_บ.นาแต้ ต.นาแต้ อ.เมือง จ.อำนาจเจริญ', 240, 48);
+        addMarker(15.8653144, 104.624263, '#6A1B9A', '54-008845', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G67_ตลาดวิชิตสิน(ข้างโรงพยาบาล) อ.เมือง จ.อำนาจฯ', 103, 20);
+        addMarker(15.85656226, 104.506426, '#EF6C00', '58-017509', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G67_บ.นายม ต.นายม อ.เมือง จ.อำนาจเจริญ', 167, 33);
+        addMarker(15.85183532, 104.462569, '#EF6C00', '49-004651', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'DCC_บ้านหนองเรือ(ปรับปรุง)ต.นาหมอม้า อ.เมือง จ.อำ*', 191, 38);
+        addMarker(15.80429544, 104.627052, '#2E7D32', '39-001534', 'กลุ่มที่ 1 (รอบนอกตะวันออก-คึมใหญ่)', 160, 'G67_บ.ดอนดู่ ต.ไก่คำ อ.เมือง จ.อำนาจเจริญ', 174, 34);
+        addMarker(15.7879468, 104.62496, '#2E7D32', '61-014705', 'กลุ่มที่ 1 (รอบนอกตะวันออก-คึมใหญ่)', 160, 'G61_หน้าโรงเลื่อย ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 51, 10);
+        addMarker(15.81754405, 104.594995, '#6A1B9A', '67-029122', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 250, 'DCC_บ.เชือก', 370, 74);
+        addMarker(15.8663645, 104.627152, '#6A1B9A', '61-015213', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G67_หน้าสุรพล(ก๋วยจั้บกุ้ง) ต.บุ่ง อ.เมือง จ.อำนาจ', 151, 30);
+        addMarker(15.86114657, 104.619364, '#6A1B9A', '49-004469', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G67_หน้า ปตท.(โรงแรมฝ้ายขิค) ต.บุ่ง อ.เมือง จ.อำนาจฯ', 103, 20);
+        addMarker(15.88885057, 104.626613, '#6A1B9A', '63-022834', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'บ.พุทธอุทยาน ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 101, 20);
+        addMarker(16.00069267, 104.579246, '#C62828', '38-020689', 'กลุ่มที่ 5 (ตะวันตกเฉียงเหนือ-นาผือ)', 160, 'G61_บ.นาดี ต.นาวัง อ.เมือง จ.อำนาจเจริญ', 178, 35);
+        addMarker(15.95953079, 104.741494, '#1565C0', '29-011191', 'กลุ่มที่ 4 (ทิศใต้-ไก่คำ)', 160, 'G68_บ.ดอนไร่ ต.คึมใหญ่ อ.เมือง จ.อำนาจเจริญ', 262, 52);
+        addMarker(15.84695546, 104.5523, '#EF6C00', '60-013168', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G67_บ.โนนโพธิ์ ต.โนนโพธิ์ อ.เมือง จ.อำนาจเจริญ', 184, 36);
+        addMarker(15.85814331, 104.745401, '#1565C0', '47-009204', 'กลุ่มที่ 4 (ทิศใต้-ไก่คำ)', 160, 'G67_บ.คำมะโค้ง ต.สร้างนกทา อ.เมือง จ.อำนาจเจริญ', 165, 33);
+        addMarker(15.86452936, 104.6301, '#6A1B9A', '52-004515', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'DCC_ชุมชนบ่อพัฒนา(ปากทางวัดสระเกษปรับปรุง)ต.บุ่ง', 60, 12);
+        addMarker(15.8634274, 104.632344, '#6A1B9A', '55-016083', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 250, 'G67_หน้าวัดสระเกษ ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 201, 40);
+        addMarker(15.80843175, 104.460756, '#EF6C00', '46-008071', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 250, 'DCC_สุขาภิบาลน้ำปลีก ต.น้ำปลีก อ.เมือง', 406, 81);
+        addMarker(15.88100087, 104.625032, '#6A1B9A', '54-014398', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G68_หน้าโชว์รูม ISUZU ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 97, 19);
+        addMarker(15.97526704, 104.607071, '#C62828', '67-008446', 'กลุ่มที่ 5 (ตะวันตกเฉียงเหนือ-นาผือ)', 160, 'บ.วังแคน ต.กุดปลาคุก อ.เมือง จ.อำนาจเจริญ', 167, 33);
+        addMarker(15.80961652, 104.561638, '#EF6C00', '23-011162', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G68_บ.หนองปลิง ต.ดอนเมย อ.เมือง จ.อำนาจเจริญ', 273, 54);
+        addMarker(15.87125968, 104.626008, '#6A1B9A', '35-003902', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 250, 'G67_ซอยวิจารณ์ ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 267, 53);
+        addMarker(15.86433252, 104.539615, '#EF6C00', '44-000265', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G67_บ.สองคอน ต.โนนโพธิ์ อ.เมือง จ.อำนาจเจริญ', 191, 38);
+        addMarker(15.8647436, 104.629706, '#6A1B9A', '52-004516', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'DCC_หน้าโปลีเทคนิค(ปรับปรุง)ต.บุ่ง อ.เมือง', 55, 11);
+        addMarker(15.98671138, 104.742541, '#1565C0', '28-012584', 'กลุ่มที่ 4 (ทิศใต้-ไก่คำ)', 160, 'G67_บ.คึมใหญ่ ต.คึมใหญ่ อ.เมือง จ.อำนาจเจริญ', 208, 41);
+        addMarker(15.86830667, 104.629574, '#6A1B9A', '67-006113', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G68_ซอยวิจารณ์ ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 92, 18);
+        addMarker(15.85537251, 104.623456, '#6A1B9A', '67-006112', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'บ.ยางใต้ ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 75, 15);
+        addMarker(15.89567684, 104.470892, '#EF6C00', '49-004123', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G67_บ.แก้งกอก ต.นาหมอม้า อ.เมือง จ.อำนาจเจริญ', 287, 57);
+        addMarker(15.87530567, 104.686626, '#6A1B9A', '65-024550', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G68_บ.หนองตาใกล้ ต.ห้วยไร่ อ.เมือง จ.อำนาจเจริญ', 212, 42);
+        addMarker(15.82654, 104.62263, '#6A1B9A', '63-023267', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G51_หน้าปตท (โรงแรมฝ้ายขิต) ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 61, 12);
+        addMarker(15.93907558, 104.78485, '#1565C0', '46-008882', 'กลุ่มที่ 4 (ทิศใต้-ไก่คำ)', 160, 'G68_บ.ภูเขาขาม ต.คึมใหญ่ อ.เมือง จ.อำนาจเจริญ', 142, 28);
+        addMarker(15.87707427, 104.631491, '#6A1B9A', '58-015954', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'ซอยเกษตรสิน ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 103, 20);
+        addMarker(15.86286977, 104.629242, '#6A1B9A', '46-009075', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'หน้าสาธารณสุขเก่า ต.บุ่ง อ.เมือง จ.อำนาจเจริญ', 92, 18);
+        addMarker(15.93907558, 104.698042, '#1565C0', '49-005559', 'กลุ่มที่ 4 (ทิศใต้-ไก่คำ)', 160, 'G68_บ.นาแต้ ต.คึมใหญ่ อ.เมือง จ.อำนาจเจริญ', 187, 37);
+        addMarker(15.86650307, 104.575103, '#6A1B9A', '37-010906', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G68_บ.โพธิ์ศิลา ต.โนนโพธิ์ อ.เมือง จ.อำนาจเจริญ', 194, 38);
+        addMarker(15.77934967, 104.634499, '#2E7D32', '48-001784', 'กลุ่มที่ 1 (รอบนอกตะวันออก-คึมใหญ่)', 160, 'G61_โคกศรีบุญเรือง ต.ไก่คำ อ.เมือง จ.อำนาจเจริญ', 148, 29);
+        addMarker(15.865, 104.63943, '#6A1B9A', '59-003771', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'DCC_บายพาส ที่ดินจัดสรรนายเสน่ห์ (หน้าบ้านเอื้อยยา)', 59, 11);
+        addMarker(15.99117301, 104.639975, '#C62828', '37-010905', 'กลุ่มที่ 5 (ตะวันตกเฉียงเหนือ-นาผือ)', 160, 'G67_บ.นาผือ ต.นาผือ อ.เมือง จ.อำนาจเจริญ', 243, 48);
+        addMarker(15.79955009, 104.525785, '#EF6C00', '60-013170', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 160, 'G67_บ.คำสร้างบ่อ ต.น้ำปลีก อ.เมือง จ.อำนาจเจริญ', 165, 33);
+        addMarker(15.81229895, 104.706009, '#2E7D32', '54-010131', 'กลุ่มที่ 1 (รอบนอกตะวันออก-คึมใหญ่)', 160, 'บ.หนองหิน ต.หนองมะแซว อ.เมือง จ.อำนาจเจริญ', 255, 51);
+        addMarker(15.97599988, 104.667969, '#C62828', '66-016322', 'กลุ่มที่ 5 (ตะวันตกเฉียงเหนือ-นาผือ)', 160, 'G67_บ.นาเรือง ต.นาผือ อ.เมือง จ.อำนาจเจริญ', 277, 55);
+        addMarker(15.89191472, 104.617438, '#6A1B9A', '60-030642', 'กลุ่มที่ 2 (ศูนย์กลางตัวเมืองอำนาจเจริญ)', 160, 'G67_บ.พุทธอุทยาน(หลังวัดพระใหญ่) อ.เมือง จ.อำนาจฯ', 170, 34);
+        addMarker(15.80696905, 104.716662, '#2E7D32', '27-007739', 'กลุ่มที่ 1 (รอบนอกตะวันออก-คึมใหญ่)', 160, 'G67_บ.หนองมะแซว ต.หนองมะแซว อ.เมือง จ.อำนาจเจริญ', 176, 35);
+        addMarker(15.80769774, 104.468108, '#EF6C00', '67-029121', 'กลุ่มที่ 3 (ฝั่งตะวันตก-น้ำปลีก)', 250, 'G67_สุขาภิบาลน้ำปลีก ต.น้ำปลีก อ.เมือง จ.อำนาจฯ', 227, 45);
+
+        // Init stats on load
+        loadStatus();
+    </script>
+</body>
+</html>
